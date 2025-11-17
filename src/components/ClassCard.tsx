@@ -71,6 +71,8 @@ export default function ClassCard({ classItem, status, onAttendanceMarked }: Cla
         subject: classItem.subject,
         status: attendanceStatus,
         swapped_to: swappedTo || null,
+      }, {
+        onConflict: 'userid,date,subject'
       });
 
       if (error) throw error;
