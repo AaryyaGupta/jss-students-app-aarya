@@ -15,7 +15,7 @@ interface TimetableClass {
   day: string;
 }
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export default function TimetablePage() {
   const { user, loading: authLoading } = useAuth();
