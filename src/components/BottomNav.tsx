@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Calendar, User } from "lucide-react";
+import { Home, Calendar, User, BookOpen } from "lucide-react";
 
 export default function BottomNav() {
   return (
@@ -15,6 +15,18 @@ export default function BottomNav() {
         >
           <Home className="h-6 w-6" />
           <span className="text-xs mt-1">Home</span>
+        </NavLink>
+        
+        <NavLink
+          to="/timetable"
+          className={({ isActive }) =>
+            `flex flex-col items-center justify-center flex-1 h-full transition-colors ${
+              isActive ? "text-primary" : "text-muted-foreground"
+            }`
+          }
+        >
+          <BookOpen className="h-6 w-6" />
+          <span className="text-xs mt-1">Timetable</span>
         </NavLink>
         
         <NavLink

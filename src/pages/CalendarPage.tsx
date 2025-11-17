@@ -5,8 +5,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
+import { toast } from "sonner";
 import BottomNav from "@/components/BottomNav";
+import AddHolidayDialog from "@/components/AddHolidayDialog";
 import { format } from "date-fns";
 
 interface Holiday {
@@ -23,6 +25,7 @@ export default function CalendarPage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [loading, setLoading] = useState(true);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -63,6 +66,28 @@ export default function CalendarPage() {
     return holidays.filter((h) => h.date === dateStr);
   };
 
+  const handleAddHoliday = async (date: Date, name: string) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase.from("calendar").insert({
+        date: format(date, "yyyy-MM-dd"),
+        name,
+        type: "holiday",
+        is_institution_wide: false,
+        userid: user.id,
+      });
+
+      if (error) throw error;
+
+      toast.success("Holiday added successfully");
+      fetchHolidays();
+    } catch (error: any) {
+      toast.error("Failed to add holiday");
+      console.error(error);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -76,8 +101,19 @@ export default function CalendarPage() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <div className="bg-primary text-primary-foreground p-6">
-        <h1 className="text-2xl font-bold">Calendar</h1>
-        <p className="text-sm opacity-90">View holidays and events</p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-bold">Calendar</h1>
+            <p className="text-sm opacity-90">View holidays and events</p>
+          </div>
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={() => setAddDialogOpen(true)}
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
 
       <div className="p-4 space-y-4">
@@ -162,6 +198,12 @@ export default function CalendarPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AddHolidayDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        onAdd={handleAddHoliday}
+      />
 
       <BottomNav />
     </div>
