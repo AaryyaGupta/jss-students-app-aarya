@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, AlertCircle, Calendar, User, BookOpen } from "lucide-react";
+import { Loader2, AlertCircle, Calendar, User, BookOpen, Edit } from "lucide-react";
 import { toast } from "sonner";
 import ClassCard from "@/components/ClassCard";
 import BottomNav from "@/components/BottomNav";
+import AttendanceEditDialog from "@/components/AttendanceEditDialog";
 import { format } from "date-fns";
 
 interface Profile {
@@ -50,6 +51,8 @@ export default function Dashboard() {
   const [subjectAttendance, setSubjectAttendance] = useState<SubjectAttendance[]>([]);
   const [overallPercentage, setOverallPercentage] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingSubject, setEditingSubject] = useState<SubjectAttendance | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -192,6 +195,46 @@ export default function Dashboard() {
     return "text-destructive";
   };
 
+  const handleEditAttendance = (subject: SubjectAttendance) => {
+    setEditingSubject(subject);
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveAttendance = async (attended: number, total: number) => {
+    if (!editingSubject || !user) return;
+
+    try {
+      // Update attendance records for this subject
+      // Delete existing records for this subject
+      await supabase
+        .from("attendance_record")
+        .delete()
+        .eq("userid", user.id)
+        .eq("subject", editingSubject.subject);
+
+      // Create new records based on the counts
+      const records = [];
+      for (let i = 0; i < total; i++) {
+        records.push({
+          userid: user.id,
+          subject: editingSubject.subject,
+          date: format(new Date(Date.now() - i * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
+          status: i < attended ? "present" : "absent",
+        });
+      }
+
+      if (records.length > 0) {
+        await supabase.from("attendance_record").insert(records);
+      }
+
+      toast.success("Attendance updated successfully");
+      fetchAttendanceData();
+    } catch (error: any) {
+      toast.error("Failed to update attendance");
+      console.error(error);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -246,18 +289,27 @@ export default function Dashboard() {
             <Card key={subject.subject} className="shadow-sm">
               <CardContent className="p-4">
                 <div className="flex justify-between items-start mb-2">
-                  <div>
+                  <div className="flex-1">
                     <h3 className="font-semibold">{subject.subject}</h3>
                     <p className="text-sm text-muted-foreground">
                       {subject.attended}/{subject.total} classes
                     </p>
                   </div>
-                  <Badge 
-                    variant={subject.percentage >= 75 ? "default" : "destructive"}
-                    className={subject.percentage >= 75 ? "bg-success hover:bg-success/90" : ""}
-                  >
-                    {Math.round(subject.percentage)}%
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEditAttendance(subject)}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Badge 
+                      variant={subject.percentage >= 75 ? "default" : "destructive"}
+                      className={subject.percentage >= 75 ? "bg-success hover:bg-success/90" : ""}
+                    >
+                      {Math.round(subject.percentage)}%
+                    </Badge>
+                  </div>
                 </div>
                 <Progress 
                   value={subject.percentage} 
@@ -292,6 +344,17 @@ export default function Dashboard() {
           ))
         )}
       </div>
+
+      {editingSubject && (
+        <AttendanceEditDialog
+          subject={editingSubject.subject}
+          attended={editingSubject.attended}
+          total={editingSubject.total}
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          onSave={handleSaveAttendance}
+        />
+      )}
 
       <BottomNav />
     </div>
