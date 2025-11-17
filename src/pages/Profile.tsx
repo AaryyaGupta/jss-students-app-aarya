@@ -4,7 +4,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, LogOut, User as UserIcon, Mail, BookOpen, Users } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Loader2, LogOut, User as UserIcon, Mail, BookOpen, Users, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import BottomNav from "@/components/BottomNav";
 
@@ -21,6 +31,8 @@ export default function Profile() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -60,6 +72,32 @@ export default function Profile() {
       navigate("/auth");
     } catch (error: any) {
       toast.error("Failed to logout");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    
+    try {
+      setDeleting(true);
+      
+      // Delete user's data from all tables
+      await supabase.from("attendance_record").delete().eq("userid", user.id);
+      await supabase.from("calendar").delete().eq("userid", user.id);
+      await supabase.from("user_roles").delete().eq("userid", user.id);
+      await supabase.from("profiles").delete().eq("id", user.id);
+      
+      // Sign out user (auth user deletion requires admin privileges)
+      await supabase.auth.signOut();
+      
+      toast.success("Account data deleted successfully");
+      navigate("/auth");
+    } catch (error: any) {
+      toast.error("Failed to delete account");
+      console.error(error);
+    } finally {
+      setDeleting(false);
+      setShowDeleteDialog(false);
     }
   };
 
@@ -125,15 +163,52 @@ export default function Profile() {
           <CardContent className="space-y-3">
             <Button
               onClick={handleLogout}
-              variant="destructive"
+              variant="outline"
               className="w-full"
             >
               <LogOut className="mr-2 h-4 w-4" />
               Logout
             </Button>
+            <Button
+              onClick={() => setShowDeleteDialog(true)}
+              variant="destructive"
+              className="w-full"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete Account
+            </Button>
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete your account
+              and remove all your data including attendance records, timetable, and calendar events.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete Account"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <BottomNav />
     </div>

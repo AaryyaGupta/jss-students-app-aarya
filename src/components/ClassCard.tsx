@@ -124,15 +124,22 @@ export default function ClassCard({ classItem, status, onAttendanceMarked }: Cla
     <>
       <Card
         {...handlers}
-        className={`shadow-md cursor-pointer transition-all duration-300 ${swipeClass} ${
-          !status ? "hover:shadow-lg" : ""
+        className={`shadow-md transition-all duration-300 ${swipeClass} ${
+          !status ? "cursor-pointer hover:shadow-lg" : ""
         }`}
         onClick={() => !status && setShowDialog(true)}
       >
         <CardContent className="p-4">
           <div className="flex justify-between items-start">
             <div className="space-y-2 flex-1">
-              <h3 className="font-semibold text-lg">{classItem.subject}</h3>
+              <h3 className="font-semibold text-lg">
+                {status?.swapped_to || classItem.subject}
+              </h3>
+              {status?.swapped_to && (
+                <p className="text-xs text-muted-foreground">
+                  Original: {classItem.subject}
+                </p>
+              )}
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
@@ -150,10 +157,19 @@ export default function ClassCard({ classItem, status, onAttendanceMarked }: Cla
             </div>
             {getStatusBadge()}
           </div>
-          {!status && (
+          {!status ? (
             <p className="text-xs text-muted-foreground mt-3">
               Swipe right for present, left for absent, or tap for more options
             </p>
+          ) : (
+            <Button
+              onClick={() => setShowDialog(true)}
+              variant="outline"
+              size="sm"
+              className="mt-3 w-full"
+            >
+              Edit Attendance
+            </Button>
           )}
         </CardContent>
       </Card>
@@ -162,7 +178,9 @@ export default function ClassCard({ classItem, status, onAttendanceMarked }: Cla
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{classItem.subject}</DialogTitle>
-            <DialogDescription>Mark your attendance for this class</DialogDescription>
+            <DialogDescription>
+              {status ? "Edit your attendance for this class" : "Mark your attendance for this class"}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 pt-4">
             <Button
