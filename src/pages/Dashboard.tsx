@@ -93,52 +93,97 @@ export default function Dashboard() {
   };
 
   const fetchTodayClasses = async () => {
-    if (!user) return;
+    try {
+      // 1. Get current authenticated user
+      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !currentUser) {
+        console.error("User not authenticated:", userError);
+        setTodayClasses([]);
+        setAttendanceRecords([]);
+        return;
+      }
 
-    // Get user's batch
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("batch")
-      .eq("id", user.id)
-      .single();
+      console.log("Current user ID:", currentUser.id);
 
-    if (!profileData) return;
+      // 2. Get user's profile to get their batch
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("batch, branch")
+        .eq("id", currentUser.id)
+        .single();
 
-    // Get current day
-    const today = format(new Date(), "EEEE"); // Returns day name like "Monday"
-    const todayDate = format(new Date(), "yyyy-MM-dd");
+      if (profileError || !profileData) {
+        console.error("Could not fetch user profile:", profileError);
+        setTodayClasses([]);
+        setAttendanceRecords([]);
+        return;
+      }
 
-    // Check for holidays
-    const { data: holidays } = await supabase
-      .from("calendar")
-      .select("*")
-      .eq("date", todayDate)
-      .or(`is_institution_wide.eq.true,userid.eq.${user.id}`);
+      console.log("Fetching classes for batch:", profileData.batch, "branch:", profileData.branch);
 
-    if (holidays && holidays.length > 0) {
+      // 3. Get today's information
+      const today = format(new Date(), "EEEE"); // Returns day name like "Monday"
+      const todayDate = format(new Date(), "yyyy-MM-dd");
+
+      console.log("Today is:", today, todayDate);
+
+      // 4. Check if today is a holiday
+      const { data: holidays } = await supabase
+        .from("calendar")
+        .select("*")
+        .eq("date", todayDate)
+        .or(`is_institution_wide.eq.true,userid.eq.${currentUser.id}`);
+
+      if (holidays && holidays.length > 0) {
+        console.log("Today is a holiday:", holidays[0].name);
+        setTodayClasses([]);
+        setAttendanceRecords([]);
+        return;
+      }
+
+      // 5. Fetch timetable classes for user's batch and today's day
+      const { data: classes, error: classesError } = await supabase
+        .from("timetable")
+        .select("*")
+        .eq("batch", profileData.batch)
+        .eq("day", today)
+        .order("start_time", { ascending: true });
+
+      if (classesError) {
+        console.error("Error fetching classes:", classesError);
+        throw classesError;
+      }
+
+      console.log("Found classes:", classes?.length || 0);
+
+      // 6. Also fetch batch-wide classes if is_batch_wide = true
+      const { data: batchWideClasses } = await supabase
+        .from("timetable")
+        .select("*")
+        .eq("is_batch_wide", true)
+        .eq("day", today)
+        .order("start_time", { ascending: true });
+
+      // 7. Combine and deduplicate classes
+      const allClasses = [...(classes || []), ...(batchWideClasses || [])];
+
+      // 8. Get existing attendance for these classes
+      const { data: records } = await supabase
+        .from("attendance_record")
+        .select("*")
+        .eq("userid", currentUser.id)
+        .eq("date", todayDate);
+
+      console.log("Found attendance records:", records?.length || 0);
+
+      setTodayClasses(allClasses);
+      setAttendanceRecords(records || []);
+    } catch (error) {
+      console.error("Error in fetchTodayClasses:", error);
       setTodayClasses([]);
-      return;
+      setAttendanceRecords([]);
     }
-
-    // Fetch classes
-    const { data, error } = await supabase
-      .from("timetable")
-      .select("*")
-      .eq("batch", profileData.batch)
-      .eq("day", today)
-      .order("start_time");
-
-    if (error) throw error;
-    setTodayClasses(data || []);
-
-    // Fetch today's attendance records
-    const { data: records } = await supabase
-      .from("attendance_record")
-      .select("*")
-      .eq("userid", user.id)
-      .eq("date", todayDate);
-
-    setAttendanceRecords(records || []);
   };
 
   const fetchAttendanceData = async () => {
