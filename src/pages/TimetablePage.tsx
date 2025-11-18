@@ -48,11 +48,11 @@ export default function TimetablePage() {
 
       if (!profileData) return;
 
-      // Fetch all classes for the batch
+      // Fetch all classes for the batch (using like to match batch prefix)
       const { data, error } = await supabase
         .from("timetable")
         .select("*")
-        .eq("batch", profileData.batch)
+        .like("batch", `${profileData.batch}%`)
         .order("start_time");
 
       if (error) throw error;

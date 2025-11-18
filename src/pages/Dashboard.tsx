@@ -142,11 +142,11 @@ export default function Dashboard() {
         return;
       }
 
-      // 5. Fetch timetable classes for user's batch and today's day
+      // 5. Fetch timetable classes for user's batch and today's day (using like to match batch prefix)
       const { data: classes, error: classesError } = await supabase
         .from("timetable")
         .select("*")
-        .eq("batch", profileData.batch)
+        .like("batch", `${profileData.batch}%`)
         .eq("day", today)
         .order("start_time", { ascending: true });
 
