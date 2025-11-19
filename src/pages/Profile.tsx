@@ -81,55 +81,31 @@ export default function Profile() {
     try {
       setDeleting(true);
       
-      const userId = user.id;
+      // Call edge function to delete account
+      const { data: sessionData } = await supabase.auth.getSession();
       
-      // Delete in order to handle foreign key constraints
-      
-      // 1. Delete all attendance records
-      const { error: attendanceError } = await supabase
-        .from("attendance_record")
-        .delete()
-        .eq("userid", userId);
-      
-      if (attendanceError) {
-        console.error("Error deleting attendance:", attendanceError);
-        throw new Error("Failed to delete attendance records");
+      if (!sessionData.session) {
+        throw new Error("No active session");
       }
-      
-      // 2. Delete user's personal holidays from calendar
-      const { error: calendarError } = await supabase
-        .from("calendar")
-        .delete()
-        .eq("userid", userId);
-      
-      if (calendarError) {
-        console.error("Error deleting calendar:", calendarError);
-        throw new Error("Failed to delete calendar entries");
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user-account`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${sessionData.session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete account');
       }
-      
-      // 3. Delete from user_roles
-      const { error: rolesError } = await supabase
-        .from("user_roles")
-        .delete()
-        .eq("userid", userId);
-      
-      if (rolesError) {
-        console.error("Error deleting roles:", rolesError);
-        throw new Error("Failed to delete user roles");
-      }
-      
-      // 4. Delete from profiles
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .delete()
-        .eq("id", userId);
-      
-      if (profileError) {
-        console.error("Error deleting profile:", profileError);
-        throw new Error("Failed to delete profile");
-      }
-      
-      // 5. Sign out user (auth user deletion requires service_role key)
+
+      // Sign out locally
       await supabase.auth.signOut();
       
       toast.success("Account deleted successfully");
