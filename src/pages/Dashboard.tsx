@@ -157,16 +157,30 @@ export default function Dashboard() {
 
       console.log("Found classes:", classes?.length || 0);
 
-      // 6. Also fetch batch-wide classes if is_batch_wide = true
-      const { data: batchWideClasses } = await supabase
+      // 6. Also fetch batch-wide classes, but scoped to the user's batch prefix
+      // (prevents showing other batches' batch-wide rows)
+      const { data: batchWideClasses, error: batchWideError } = await supabase
         .from("timetable")
         .select("*")
+        .like("batch", `${profileData.batch}%`)
         .eq("is_batch_wide", true)
         .eq("day", today)
         .order("start_time", { ascending: true });
 
-      // 7. Combine and deduplicate classes
+      if (batchWideError) {
+        console.warn("Error fetching batch-wide classes:", batchWideError);
+      }
+
+      // 7. Combine + dedupe by schedule signature (same subject/time/day/room)
       const allClasses = [...(classes || []), ...(batchWideClasses || [])];
+      const uniqueClasses = Array.from(
+        new Map(
+          allClasses.map((c) => [
+            `${c.day}|${c.subject}|${c.start_time}|${c.end_time}|${c.room ?? ""}`,
+            c,
+          ])
+        ).values()
+      ).sort((a, b) => a.start_time.localeCompare(b.start_time));
 
       // 8. Get existing attendance for these classes
       const { data: records } = await supabase
@@ -177,7 +191,7 @@ export default function Dashboard() {
 
       console.log("Found attendance records:", records?.length || 0);
 
-      setTodayClasses(allClasses);
+      setTodayClasses(uniqueClasses);
       setAttendanceRecords(records || []);
     } catch (error) {
       console.error("Error in fetchTodayClasses:", error);
