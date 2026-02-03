@@ -80,29 +80,14 @@ export default function Profile() {
     
     try {
       setDeleting(true);
-      
-      // Call edge function to delete account
-      const { data: sessionData } = await supabase.auth.getSession();
-      
-      if (!sessionData.session) {
-        throw new Error("No active session");
-      }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user-account`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${sessionData.session.access_token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      // Call backend function to delete account (uses current session automatically)
+      const { error } = await supabase.functions.invoke("delete-user-account", {
+        method: "POST",
+      });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to delete account');
+      if (error) {
+        throw new Error(error.message || "Failed to delete account");
       }
 
       // Sign out locally
