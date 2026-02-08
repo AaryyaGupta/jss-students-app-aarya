@@ -81,17 +81,27 @@ export default function Profile() {
     try {
       setDeleting(true);
 
-      // Call backend function to delete account (uses current session automatically)
-      const { error } = await supabase.functions.invoke("delete-user-account", {
+      // Call backend function to delete account
+      const { data, error } = await supabase.functions.invoke("delete-user-account", {
         method: "POST",
       });
 
+      console.log("Delete account response:", { data, error });
+
       if (error) {
+        console.error("Edge function error:", error);
         throw new Error(error.message || "Failed to delete account");
       }
 
-      // Sign out locally
+      // Check if response indicates an error
+      if (data?.error) {
+        console.error("Delete account API error:", data.error);
+        throw new Error(data.error);
+      }
+
+      // Sign out and clear all local storage
       await supabase.auth.signOut();
+      localStorage.clear();
       
       toast.success("Account deleted successfully");
       navigate("/auth");

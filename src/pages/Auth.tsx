@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,18 @@ export default function Auth() {
   const [rollNumber, setRollNumber] = useState("");
   const [branch, setBranch] = useState("");
   const [batch, setBatch] = useState("");
+
+  // Clear any stale auth session on mount to ensure clean signup/login
+  useEffect(() => {
+    const clearStaleSession = async () => {
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        // Ignore errors, just ensure clean state
+      }
+    };
+    clearStaleSession();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
