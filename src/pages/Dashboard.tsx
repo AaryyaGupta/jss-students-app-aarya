@@ -93,106 +93,56 @@ export default function Dashboard() {
   };
 
   const fetchTodayClasses = async () => {
+    if (!user) return;
+
     try {
-      // 1. Get current authenticated user
-      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !currentUser) {
-        console.error("User not authenticated:", userError);
-        setTodayClasses([]);
-        setAttendanceRecords([]);
-        return;
-      }
-
-      console.log("Current user ID:", currentUser.id);
-
-      // 2. Get user's profile to get their batch
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("batch, branch")
-        .eq("id", currentUser.id)
-        .single();
-
-      if (profileError || !profileData) {
-        console.error("Could not fetch user profile:", profileError);
-        setTodayClasses([]);
-        setAttendanceRecords([]);
-        return;
-      }
-
-      console.log("Fetching classes for batch:", profileData.batch, "branch:", profileData.branch);
-
-      // 3. Get today's information
-      const today = format(new Date(), "EEEE"); // Returns day name like "Monday"
+      const today = format(new Date(), "EEEE");
       const todayDate = format(new Date(), "yyyy-MM-dd");
 
-      console.log("Today is:", today, todayDate);
+      // Fetch profile (for batch) and holiday check in parallel
+      const [profileResult, holidayResult] = await Promise.all([
+        supabase.from("profiles").select("batch, branch").eq("id", user.id).single(),
+        supabase.from("calendar").select("*").eq("date", todayDate)
+          .or(`is_institution_wide.eq.true,userid.eq.${user.id}`),
+      ]);
 
-      // 4. Check if today is a holiday
-      const { data: holidays } = await supabase
-        .from("calendar")
-        .select("*")
-        .eq("date", todayDate)
-        .or(`is_institution_wide.eq.true,userid.eq.${currentUser.id}`);
-
-      if (holidays && holidays.length > 0) {
-        console.log("Today is a holiday:", holidays[0].name);
+      if (profileResult.error || !profileResult.data) {
         setTodayClasses([]);
         setAttendanceRecords([]);
         return;
       }
 
-      // 5. Fetch timetable classes for user's batch and today's day (using like to match batch prefix)
-      const { data: classes, error: classesError } = await supabase
-        .from("timetable")
-        .select("*")
-        .like("batch", `${profileData.batch}%`)
-        .eq("day", today)
-        .order("start_time", { ascending: true });
-
-      if (classesError) {
-        console.error("Error fetching classes:", classesError);
-        throw classesError;
+      if (holidayResult.data && holidayResult.data.length > 0) {
+        setTodayClasses([]);
+        setAttendanceRecords([]);
+        return;
       }
 
-      console.log("Found classes:", classes?.length || 0);
+      // Fetch classes and attendance in parallel — single query covers both batch-specific and batch-wide
+      const [classesResult, recordsResult] = await Promise.all([
+        supabase.from("timetable").select("*")
+          .like("batch", `${profileResult.data.batch}%`)
+          .eq("day", today)
+          .order("start_time", { ascending: true }),
+        supabase.from("attendance_record").select("*")
+          .eq("userid", user.id)
+          .eq("date", todayDate),
+      ]);
 
-      // 6. Also fetch batch-wide classes, but scoped to the user's batch prefix
-      // (prevents showing other batches' batch-wide rows)
-      const { data: batchWideClasses, error: batchWideError } = await supabase
-        .from("timetable")
-        .select("*")
-        .like("batch", `${profileData.batch}%`)
-        .eq("is_batch_wide", true)
-        .eq("day", today)
-        .order("start_time", { ascending: true });
+      if (classesResult.error) throw classesResult.error;
 
-      if (batchWideError) {
-        console.warn("Error fetching batch-wide classes:", batchWideError);
-      }
-
-      // 7. Combine + dedupe by schedule signature (same subject/time/day/room)
-      const allClasses = [...(classes || []), ...(batchWideClasses || [])];
+      // Dedupe by subject + time + day (drop room to avoid false duplicates)
       const uniqueClasses = Array.from(
         new Map(
-          allClasses.map((c) => [
-            `${c.day}|${c.subject}|${c.start_time}|${c.end_time}|${c.room ?? ""}`,
+          (classesResult.data || []).map((c) => [
+            `${c.day}|${c.subject}|${c.start_time}|${c.end_time}`,
             c,
           ])
         ).values()
       ).sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-      // 8. Get existing attendance for these classes
-      const { data: records } = await supabase
-        .from("attendance_record")
-        .select("*")
-        .eq("userid", currentUser.id)
-        .eq("date", todayDate);
-
-      console.log("Found attendance records:", records?.length || 0);
-
       setTodayClasses(uniqueClasses);
-      setAttendanceRecords(records || []);
+      setAttendanceRecords(recordsResult.data || []);
     } catch (error) {
       console.error("Error in fetchTodayClasses:", error);
       setTodayClasses([]);
