@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ const BATCH_OPTIONS: Record<string, string[]> = {
 
 export default function Auth() {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
@@ -28,17 +30,12 @@ export default function Auth() {
   const [branch, setBranch] = useState("");
   const [batch, setBatch] = useState("");
 
-  // Clear any stale auth session on mount to ensure clean signup/login
+  // Redirect already-logged-in users to dashboard
   useEffect(() => {
-    const clearStaleSession = async () => {
-      try {
-        await supabase.auth.signOut();
-      } catch (e) {
-        // Ignore errors, just ensure clean state
-      }
-    };
-    clearStaleSession();
-  }, []);
+    if (!authLoading && user) {
+      navigate("/dashboard");
+    }
+  }, [user, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
