@@ -90,7 +90,12 @@ export default function Auth() {
       toast.success("Account created! Logging you in...");
       navigate("/dashboard");
     } catch (error: any) {
-      toast.error(error.message || "Failed to sign up");
+      const msg = error.message || "";
+      if (msg.includes("unexpected_failure") || error.status === 500) {
+        toast.error("Signup failed. This roll number may already be in use. If you already have an account, try logging in instead.");
+      } else {
+        toast.error(msg || "Failed to sign up");
+      }
     } finally {
       setLoading(false);
     }
