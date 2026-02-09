@@ -1,119 +1,60 @@
 
+# Fix Plan: Persistent Login, Duplicate Classes, and Slow Loading
 
-# Fix Signup Issues and Scale Analysis
+## Issue 1: Login Not Persisting (Session Cleared on Every Visit)
 
-## Problem Analysis
+**Root Cause**: The Auth page (`src/pages/Auth.tsx`) has a `useEffect` that calls `supabase.auth.signOut()` every time it mounts. This was added to clear stale sessions, but it also destroys valid sessions. Combined with the Index page redirecting logged-in users to `/dashboard`, the flow works — but if a user ever lands on `/auth` (e.g., bookmark, direct URL), their session is wiped.
 
-Based on my investigation, I found **two separate issues**:
+The real fix: Supabase already saves login sessions in localStorage automatically. We just need to stop destroying them unnecessarily.
 
-### Issue 1: "Invalid Refresh Token" Error
-When you see the error on the home page, it's because:
-- A previously deleted account (or logged out session) left stale authentication tokens in browser storage
-- When the app loads, it tries to refresh these invalid tokens, which fails
-- The current code doesn't handle this error gracefully, leaving users in a broken state
+**Fix**: Remove the `signOut()` on Auth page mount. Instead, redirect already-logged-in users away from the Auth page.
 
-**Good news**: Signup is actually working! I successfully created a test account (testuser123@jss.edu). The error you're seeing happens *before* you try to sign up.
+## Issue 2: Classes Showing Twice
 
-### Issue 2: Account Deletion Not Working
-The Delete Account function is deployed correctly, but there may be issues with:
-- The function call from the frontend
-- Error responses not being shown to users
+**Root Cause**: The Dashboard makes two overlapping database queries:
+1. Query 1: All classes matching the user's batch (`.like("batch", "A5%")`) -- this already includes batch-wide classes
+2. Query 2: Batch-wide classes matching the same batch filter
 
----
+Since batch-wide classes match both queries, they get added twice. The deduplication map uses `room` in the key, but room can vary, causing duplicates to slip through.
 
-## Fixes to Implement
+**Fix**: Remove the second query entirely. The first query already fetches all classes for the batch (both batch-wide and non-batch-wide). This also improves loading speed by eliminating one unnecessary database call.
 
-### Fix 1: Handle Stale Auth Tokens
+## Issue 3: Slow Loading
 
-Update `src/contexts/AuthContext.tsx` to:
-- Detect "refresh_token_not_found" errors during initialization
-- Automatically clear the invalid session from localStorage
-- Allow users to proceed to login/signup without errors
+**Root Cause**: The Dashboard's `fetchTodayClasses` function makes **5 sequential/parallel database calls**:
+1. `supabase.auth.getUser()` (redundant -- user is already in AuthContext)
+2. Profile fetch (redundant -- already fetched by `fetchProfile()`)
+3. Holiday check
+4. Classes query
+5. Batch-wide classes query (redundant -- duplicate of #4)
+6. Attendance records query
 
-```text
-Flow after fix:
-  App Loads → Token Refresh Fails → Clear Invalid Session → User Can Sign Up
-```
+**Fix**:
+- Remove redundant `getUser()` call -- use `user` from AuthContext
+- Reuse the profile data from `fetchProfile()` instead of fetching it again
+- Remove the duplicate batch-wide query
+- This reduces 6 database calls down to 3 (profile, timetable+holidays, attendance)
 
-### Fix 2: Clear localStorage on Auth Page Load
+## Technical Details
 
-Update `src/pages/Auth.tsx` to:
-- Clear any stale auth data when the Auth page loads
-- Ensure a clean slate for signup/login attempts
+### Files to Change
 
-### Fix 3: Improve Account Deletion Error Handling
+**1. `src/pages/Auth.tsx`**
+- Remove the `useEffect` that calls `signOut()` on mount
+- Add a check: if user is already logged in, redirect to `/dashboard`
+- This preserves sessions across visits (the "remember device" behavior)
 
-Update `src/pages/Profile.tsx` to:
-- Add better error logging and display
-- Handle edge function response properly
-- Clear localStorage completely after deletion
+**2. `src/pages/Dashboard.tsx`**
+- Remove redundant `supabase.auth.getUser()` call; use `user` from `useAuth()`
+- Share profile data between `fetchProfile` and `fetchTodayClasses` instead of fetching twice
+- Remove the second batch-wide classes query (already included in first query)
+- Simplify deduplication to just use `subject + start_time + end_time + day` as the key (drop room)
+- Reduce total database calls from 6 to 3
 
----
+**3. `src/contexts/AuthContext.tsx`**
+- No changes needed; session persistence already works correctly here
 
-## Capacity and Scalability Analysis
-
-### Current Capacity (Lovable Cloud Free Tier)
-
-| Resource | Limit | Notes |
-|----------|-------|-------|
-| Database Size | 500 MB | Sufficient for ~50,000-100,000 users with typical data |
-| Auth Users | Unlimited | No hard limit on Supabase Auth |
-| Database Connections | 60 | Can handle ~500-1000 concurrent users |
-| Edge Function Invocations | 500K/month | ~16,000/day |
-| Bandwidth | 5 GB/month | Good for moderate traffic |
-
-### Realistic User Estimates
-
-For a **college attendance app** like yours:
-
-| Scenario | Users | Storage/User | Total Storage | Feasibility |
-|----------|-------|--------------|---------------|-------------|
-| Single Class (60 students) | 60 | ~100 KB | 6 MB | Easily supported |
-| Single Branch (300 students) | 300 | ~100 KB | 30 MB | Easily supported |
-| Full Year (1,200 students) | 1,200 | ~100 KB | 120 MB | Well supported |
-| Multiple Years (4,000 students) | 4,000 | ~100 KB | 400 MB | At limit |
-
-### Long-term Sustainability
-
-**For 1-2 years of active use with up to 2,000 students:**
-- The free tier should handle this comfortably
-- Database will grow slowly (attendance records are small)
-- Main concern: cleanup of old data after students graduate
-
-**Recommendations for scaling:**
-1. Archive or delete attendance records after students graduate
-2. Consider upgrading to Pro tier ($25/month) if you exceed 500 MB
-3. Add data retention policies to automatically clean old records
-
----
-
-## Technical Implementation Details
-
-### File Changes
-
-1. **`src/contexts/AuthContext.tsx`**
-   - Add error handling in `onAuthStateChange` 
-   - Detect `refresh_token_not_found` error
-   - Call `supabase.auth.signOut()` to clear invalid session
-   - Set loading to false so app continues normally
-
-2. **`src/pages/Auth.tsx`**
-   - Add `useEffect` to clear stale session on mount
-   - Call `supabase.auth.signOut()` when Auth page loads
-   - Prevents stale token issues from blocking signup
-
-3. **`src/pages/Profile.tsx`**
-   - Add `console.log` for response data from edge function
-   - Ensure proper error extraction from response
-   - Force clear localStorage before navigation
-
----
-
-## Summary
-
-| Issue | Root Cause | Fix |
-|-------|-----------|-----|
-| Can't signup | Stale tokens blocking app | Clear invalid sessions automatically |
-| Can't delete account | Edge function errors not surfaced | Better error handling + logging |
-| Scalability | - | Good for 2,000+ users on free tier |
-
+### Result
+- Users stay logged in across browser sessions (no re-entering credentials)
+- Classes appear once, not twice
+- Dashboard loads roughly 2x faster (half the database calls)
