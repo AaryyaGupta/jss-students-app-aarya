@@ -30,9 +30,10 @@ interface ClassCardProps {
     swapped_to?: string;
   };
   onAttendanceMarked: () => void;
+  batchSubjects?: string[];
 }
 
-export default function ClassCard({ classItem, status, onAttendanceMarked }: ClassCardProps) {
+export default function ClassCard({ classItem, status, onAttendanceMarked, batchSubjects = [] }: ClassCardProps) {
   const { user } = useAuth();
   const [showDialog, setShowDialog] = useState(false);
   const [showSwapDialog, setShowSwapDialog] = useState(false);
@@ -233,10 +234,11 @@ export default function ClassCard({ classItem, status, onAttendanceMarked }: Cla
                 <SelectValue placeholder="Select subject" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Mathematics">Mathematics</SelectItem>
-                <SelectItem value="Physics">Physics</SelectItem>
-                <SelectItem value="Chemistry">Chemistry</SelectItem>
-                <SelectItem value="Programming">Programming</SelectItem>
+                {batchSubjects
+                  .filter((s) => s !== classItem.subject)
+                  .map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             
