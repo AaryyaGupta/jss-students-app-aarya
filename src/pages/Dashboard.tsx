@@ -53,6 +53,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<SubjectAttendance | null>(null);
+  const [batchSubjects, setBatchSubjects] = useState<string[]>([]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -69,9 +70,10 @@ export default function Dashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      // Fetch profile first since other functions depend on it
+      const profileData = await fetchProfile();
       await Promise.all([
-        fetchProfile(),
-        fetchTodayClasses(),
+        fetchTodayClasses(profileData),
         fetchAttendanceData(),
       ]);
     } catch (error: any) {
@@ -81,7 +83,7 @@ export default function Dashboard() {
     }
   };
 
-  const fetchProfile = async () => {
+  const fetchProfile = async (): Promise<Profile | null> => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
@@ -90,27 +92,37 @@ export default function Dashboard() {
 
     if (error) throw error;
     setProfile(data);
+    return data;
   };
 
-  const fetchTodayClasses = async () => {
+  const fetchTodayClasses = async (profileData?: Profile | null) => {
     if (!user) return;
 
     try {
       const today = format(new Date(), "EEEE");
       const todayDate = format(new Date(), "yyyy-MM-dd");
+      const batch = profileData?.batch || profile?.batch;
 
-      // Fetch profile (for batch) and holiday check in parallel
-      const [profileResult, holidayResult] = await Promise.all([
-        supabase.from("profiles").select("batch, branch").eq("id", user.id).single(),
-        supabase.from("calendar").select("*").eq("date", todayDate)
-          .or(`is_institution_wide.eq.true,userid.eq.${user.id}`),
-      ]);
-
-      if (profileResult.error || !profileResult.data) {
+      if (!batch) {
         setTodayClasses([]);
         setAttendanceRecords([]);
         return;
       }
+
+      // Fetch holiday check, today's classes, all batch subjects, and attendance in parallel
+      const [holidayResult, classesResult, allSubjectsResult, recordsResult] = await Promise.all([
+        supabase.from("calendar").select("*").eq("date", todayDate)
+          .or(`is_institution_wide.eq.true,userid.eq.${user.id}`),
+        supabase.from("timetable").select("*")
+          .like("batch", `${batch}%`)
+          .eq("day", today)
+          .order("start_time", { ascending: true }),
+        supabase.from("timetable").select("subject")
+          .like("batch", `${batch}%`),
+        supabase.from("attendance_record").select("*")
+          .eq("userid", user.id)
+          .eq("date", todayDate),
+      ]);
 
       if (holidayResult.data && holidayResult.data.length > 0) {
         setTodayClasses([]);
@@ -118,20 +130,9 @@ export default function Dashboard() {
         return;
       }
 
-      // Fetch classes and attendance in parallel — single query covers both batch-specific and batch-wide
-      const [classesResult, recordsResult] = await Promise.all([
-        supabase.from("timetable").select("*")
-          .like("batch", `${profileResult.data.batch}%`)
-          .eq("day", today)
-          .order("start_time", { ascending: true }),
-        supabase.from("attendance_record").select("*")
-          .eq("userid", user.id)
-          .eq("date", todayDate),
-      ]);
-
       if (classesResult.error) throw classesResult.error;
 
-      // Dedupe by subject + time + day (drop room to avoid false duplicates)
+      // Dedupe by subject + time + day
       const uniqueClasses = Array.from(
         new Map(
           (classesResult.data || []).map((c) => [
@@ -142,6 +143,7 @@ export default function Dashboard() {
       ).sort((a, b) => a.start_time.localeCompare(b.start_time));
 
       setTodayClasses(uniqueClasses);
+      setBatchSubjects([...new Set((allSubjectsResult.data || []).map((r) => r.subject))]);
       setAttendanceRecords(recordsResult.data || []);
     } catch (error) {
       console.error("Error in fetchTodayClasses:", error);
@@ -213,13 +215,17 @@ export default function Dashboard() {
     if (!editingSubject || !user) return;
 
     try {
-      // Update attendance records for this subject
       // Delete existing records for this subject
-      await supabase
+      const { error: deleteError } = await supabase
         .from("attendance_record")
         .delete()
         .eq("userid", user.id)
         .eq("subject", editingSubject.subject);
+
+      if (deleteError) {
+        console.error("Delete error:", deleteError);
+        throw new Error("Failed to clear old attendance records");
+      }
 
       // Create new records based on the counts
       const records = [];
@@ -233,13 +239,17 @@ export default function Dashboard() {
       }
 
       if (records.length > 0) {
-        await supabase.from("attendance_record").insert(records);
+        const { error: insertError } = await supabase.from("attendance_record").insert(records);
+        if (insertError) {
+          console.error("Insert error:", insertError);
+          throw new Error("Failed to save new attendance records");
+        }
       }
 
       toast.success("Attendance updated successfully");
-      fetchAttendanceData();
+      await fetchAttendanceData();
     } catch (error: any) {
-      toast.error("Failed to update attendance");
+      toast.error(error.message || "Failed to update attendance");
       console.error(error);
     }
   };
@@ -349,6 +359,7 @@ export default function Dashboard() {
               classItem={classItem}
               status={getAttendanceStatus(classItem)}
               onAttendanceMarked={fetchAttendanceData}
+              batchSubjects={batchSubjects}
             />
           ))
         )}

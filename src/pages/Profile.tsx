@@ -66,12 +66,16 @@ export default function Profile() {
 
   const handleLogout = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      await supabase.auth.signOut();
+      localStorage.clear();
+      sessionStorage.clear();
       toast.success("Logged out successfully");
-      navigate("/auth");
+      navigate("/auth", { replace: true });
     } catch (error: any) {
-      toast.error("Failed to logout");
+      // Even if signOut fails, clear local data and redirect
+      localStorage.clear();
+      sessionStorage.clear();
+      navigate("/auth", { replace: true });
     }
   };
 
@@ -99,12 +103,13 @@ export default function Profile() {
         throw new Error(data.error);
       }
 
-      // Sign out and clear all local storage
+      // Sign out and clear all local/session storage
       await supabase.auth.signOut();
       localStorage.clear();
+      sessionStorage.clear();
       
       toast.success("Account deleted successfully");
-      navigate("/auth");
+      navigate("/auth", { replace: true });
     } catch (error: any) {
       toast.error(error.message || "Failed to delete account. Please try again.");
       console.error("Delete account error:", error);
