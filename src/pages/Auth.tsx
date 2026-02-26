@@ -46,17 +46,36 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const loginPromise = supabase.auth.signInWithPassword({
         email,
         password,
       });
 
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("LOGIN_TIMEOUT")), 15000);
+      });
+
+      const { error } = (await Promise.race([loginPromise, timeoutPromise])) as {
+        error: { message?: string } | null;
+      };
+
       if (error) throw error;
-      
+
       toast.success("Logged in successfully!");
       navigate("/dashboard");
     } catch (error: any) {
-      toast.error(error.message || "Failed to login");
+      if (error?.message === "LOGIN_TIMEOUT") {
+        // Recovery for auth-client deadlock: session may still have been created
+        const { data } = await supabase.auth.getSession();
+        if (data.session?.user) {
+          toast.success("Logged in successfully!");
+          navigate("/dashboard");
+          return;
+        }
+        toast.error("Login timed out. Please try again.");
+      } else {
+        toast.error(error?.message || "Failed to login");
+      }
     } finally {
       setLoading(false);
     }
